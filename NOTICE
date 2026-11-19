@@ -1,0 +1,30 @@
+Morphe NOTICE
+=============
+
+7c. Project Name Restriction
+----------------------------
+
+This license does not grant permission to use the name "Morphe", or any
+name, logo, or branding that is confusingly similar, as the name or
+primary identifying mark of any modified version, fork, or derivative work.
+
+Any redistribution or derivative work must adopt a distinct name and
+branding that clearly differentiates it from the Morphe project and does
+not cause confusion as to source or origin.
+
+References to Morphe are permitted solely for descriptive compatibility
+purposes (e.g., "compatible with Morphe" or "XYZ patches for use with Morphe"),
+provided that such references:
+
+- Are accurate, factual, and non-misleading;
+- Do not suggest authorship by the Morphe project; and
+- Appear only in a secondary or descriptive context, not as part of the product or project name.
+
+Android Auto additions in this fork
+-----------------------------------
+patches/src/main/kotlin/org/ungoogled/patches/maps/car/ and extensions/maps-gearslip/
+come from Maps-AA-AnyMode-Morphe (https://github.com/shuili1013/Maps-AA-AnyMode-Morphe,
+Copyright (C) 2026 shuili1013, GPLv3), which in turn includes the native car adapter from
+Dutch App Patches (https://codeberg.org/JohninNL/nl-morphe-patches, Copyright (C) JohninNL
+and contributors, GPLv3). Merged unchanged apart from package declarations (2026-11-19).
+"Always two-wheeler on Android Auto" is included but off by default.
