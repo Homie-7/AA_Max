@@ -62,6 +62,43 @@ Patch application against the real APKM, and anything on a phone or head unit.
 - Untested with the car session: Black theme, Power saving mode, Zoom controls in navigation,
   120 Hz. If the car screen misbehaves, disable these first.
 
+## On-device results (2026-11-19, Haval H6 2025 + Oppo Find X9 Ultra, bundle aa.1)
+Works: patching in Morphe; phone use (map, location, sign-in through stock MicroG-RE that came
+with Morphe YouTube, saved places, search, routing); Android Auto lists "microG Maps" and offers
+it on connect; map and turn cards render; navigation started on the phone shows on the car.
+- KingInstaller Classic works on ColorOS, but only with Android's own "Package installer"
+  chosen in the app chooser. InstallerX Revived as default installer breaks it (Installing
+  Installer becomes InstallerX, Initiating Installer becomes Shell). KingInstaller's Shizuku
+  Trick does not work on this phone.
+Broken on the car screen: taps on Maps' own controls (collapsed search pill, home button),
+scrolling Maps lists (settings), buttons going dead, no pan/zoom in Coolwalk split screen,
+overlapping elements. No mic button is by design (NativeNavigationPatch disables `tqb.s()`).
+
+## How the car UI works (read this before touching extensions/maps-gearslip)
+Maps' legacy projection UI is drawn on the Car App Library surface. The host gives no
+MotionEvents at any API level (checked up to 9): only onClick(x,y), onScroll(dx,dy) with no
+position, onFling, onScale(focus,factor; negative focus = unknown; double tap arrives as scale).
+ProjectionRenderer fakes touches from those. Gestures are only forwarded while the template has
+Action.PAN in the map action strip (it does) and only for the NavigationTemplate. The host
+keyboard (SearchTemplate) is parked-only. Assistant sends "navigate to" as
+androidx.car.app.action.NAVIGATE + geo: to the last navigation app launched in the car.
+NativeControls moves Maps' own buttons (search, settings, sound, report, zoom, recenter) into
+the host's strips by view id and hides the originals; ids it does not know stay as Maps views
+and depend on faked taps.
+
+## aa.2 (untested on device)
+Taps held 40 ms; drags start in the visible area and on an open Maps list for up/down drags;
+pinch falls back to the visible centre; host buttons clear a stale keyboard state. DebugLog
+writes Download/AA_Max/aa-max-log-*.txt (also logcat tag MapsNativeCar): geometry, gestures,
+templates, exported buttons, what each tap hit, and view-id dumps. Use the dumps to add the
+missing ids to NativeControls.Role.
+
+## Testing without the car
+Android Auto settings > tap Version 10x > three-dot menu > "Start head unit server". Then either
+the Desktop Head Unit on a PC (`adb forward tcp:5277 tcp:5277`, run `desktop-head-unit` from
+SDK extras/google/auto) or Open Headunit (github.com/andreknieriem/open-headunit) on the same
+phone in "Headunit Server" / self mode, or on a second Android device. Unverified on ColorOS.
+
 ## Next steps
 1. DONE: Actions build is green; get the .mpp from the latest run's `patches-mpp` artifact.
 2. Patch the 26.44.06 APKM in Morphe with this bundle (disable other Maps sources). Every car
