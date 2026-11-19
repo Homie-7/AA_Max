@@ -74,3 +74,15 @@ The first session had no access to Maven, Gradle or Android SDK servers and no d
 Upstreams: https://github.com/bearinmindcat/morphe-patches ,
 https://github.com/shuili1013/Maps-AA-AnyMode-Morphe (its README has the full install guide,
 findings.md and handoff*.md have the head-unit investigation).
+
+## Owner's target configuration (decided 2026-11-19)
+Signed in to his Google account (lots of saved places), ads and unnecessary telemetry blocked.
+- ON: "Add microG-RE support" (builds microG Maps, package `org.ungoogled.android.apps.maps.microg`),
+  "Hide ads and clutter", "Remove telemetry", plus the four default-on car patches.
+- With microG support selected, bearinmindcat already keeps what account features need:
+  "Remove telemetry" leaves Firebase Installations and Location History alone (Timeline, sync,
+  push keep working), and "Remove permissions" and "Trim account menu" are left out.
+- This makes the microG question the first thing to test, not the last: try stock MicroG-RE
+  first; if sign-in or location fails, use shuili1013/MicroG-RE v7.3.0-maps-fix (different
+  signing key, so stock MicroG-RE must be uninstalled first).
+- In KingInstaller, pick the `.microg` package, not stock Maps.
