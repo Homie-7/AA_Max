@@ -7,7 +7,7 @@ I'll continue to support patches for apps I use & apps that I get requests for (
 
 Install Morphe Manager if you have not yet: https://morphe.software
 
-**This fork (bearinmind patches + Android Auto):** [add it to Morphe Manager](https://morphe.software/add-source?github=Homie-7/AA_Max). Remove or disable the original bearinmind source first so the two do not clash.
+**AA Max (this fork: bearinmind patches + Android Auto):** [add it to Morphe Manager](https://morphe.software/add-source?github=Homie-7/AA_Max). Remove or disable the original bearinmind source first so the two do not clash.
 
 Original project: [Click here to add bearinmind patches to Morphe Manager](https://morphe.software/add-source?github=bearinmindcat/morphe-patches)
 

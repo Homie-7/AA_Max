@@ -18,7 +18,7 @@ bearinmindcat's Maps features and adds working Android Auto. Owner drives a 2025
   bearinmindcat's release workflows were removed.
 - `patches-bundle.json` points at this repo's own release (bearinmindcat's original pointed
   at their release, which has no Android Auto).
-- Version: 2.10.0-aa.1. Bundle name: "bearinmind patches + Android Auto".
+- Version: see gradle.properties. Bundle name: "AA Max".
 
 ## Build status (2026-11-19)
 `./gradlew :patches:buildAndroid` passes in GitHub Actions (run 44437418699, artifact
