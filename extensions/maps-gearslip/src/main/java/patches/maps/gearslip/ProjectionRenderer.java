@@ -172,6 +172,7 @@ public final class ProjectionRenderer {
         visibleArea = stableArea = appliedInsets = null;
     }
     public void newIntent(Intent value) {
+        DebugLog.log("new intent action=" + (value == null ? null : value.getAction()) + " scheme=" + (value == null || value.getData() == null ? null : value.getData().getScheme()));
         guard(() -> {
             intent = nativeIntent(value);
             if (created) call(field(controller, "J"), "C", new Class<?>[]{Intent.class}, intent);
@@ -334,10 +335,16 @@ public final class ProjectionRenderer {
         scroll(-velocityX / 15f, -velocityY / 15f);
         guard(this::finishTouch);
     }
-    public void scale(float focusX, float focusY, float factor) {
+    public void scale(float hostFocusX, float hostFocusY, float factor) {
         guard(() -> {
             if (!Float.isFinite(factor) || factor <= 0) return;
             finishTouch();
+            // The host reports a negative focus when it has none (zoom from a button or a knob).
+            // Pinching around an off-screen point does nothing, so use the uncovered centre.
+            Rect area = usable();
+            boolean known = hostFocusX >= 0 && hostFocusY >= 0 && hostFocusX <= width && hostFocusY <= height;
+            float focusX = known ? hostFocusX : area.isEmpty() ? width / 2f : area.exactCenterX();
+            float focusY = known ? hostFocusY : area.isEmpty() ? height / 2f : area.exactCenterY();
             long logged = SystemClock.uptimeMillis();
             if (logged - lastScaleLog > 500) { lastScaleLog = logged; DebugLog.log("scale " + factor + " at " + Math.round(focusX) + "," + Math.round(focusY)); }
             downTime = SystemClock.uptimeMillis();
