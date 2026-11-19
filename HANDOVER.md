@@ -16,8 +16,8 @@ bearinmindcat's Maps features and adds working Android Auto. Owner drives a 2025
   - `extensions/maps-gearslip/` (plain Java, Android SDK imports only; tests dropped)
 - `.github/workflows/build.yml` builds the .mpp and uploads it as artifact `patches-mpp`.
   bearinmindcat's release workflows were removed.
-- `patches-bundle.json` was deleted: it pointed at bearinmindcat's own release, so adding this
-  repo to Morphe as a remote source would have installed the bundle WITHOUT Android Auto.
+- `patches-bundle.json` points at this repo's own release (bearinmindcat's original pointed
+  at their release, which has no Android Auto).
 - Version: 2.10.0-aa.1. Bundle name: "bearinmind patches + Android Auto".
 
 ## Build status (2026-11-19)
@@ -70,8 +70,11 @@ Patch application against the real APKM, and anything on a phone or head unit.
 4. Install via KingInstaller Classic, connect to the Haval while parked.
 5. If Maps is missing or crashes on the head unit: `adb logcat` filtered on
    `CAR.VALIDATOR`, `PlayGearheadService`, `AndroidRuntime`, `patches.maps.gearslip`.
-6. Once it works: add a release step to the workflow and a correct `patches-bundle.json`
-   so the repo works as a Morphe remote source.
+6. DONE (untested in Morphe): the workflow publishes release `v<version>` with
+   `patches-<version>.mpp` on every push to main, and `patches-bundle.json` points at it.
+   When bumping `version` in gradle.properties, update `patches-bundle.json` in the same
+   commit (the workflow fails if they disagree). Open risk: Morphe may treat the `-aa.1`
+   suffix as a prerelease; if the source shows no bundle, switch to a plain version.
 
 Upstreams: https://github.com/bearinmindcat/morphe-patches ,
 https://github.com/shuili1013/Maps-AA-AnyMode-Morphe (its README has the full install guide,
