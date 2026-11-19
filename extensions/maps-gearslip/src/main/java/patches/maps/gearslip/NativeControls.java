@@ -217,7 +217,7 @@ final class NativeControls implements ViewTreeObserver.OnGlobalLayoutListener, V
         finally { down.recycle(); up.recycle(); }
     }
     private static View parent(View view) { ViewParent parent = view.getParent(); return parent instanceof View ? (View) parent : null; }
-    private static String name(View view) {
+    static String name(View view) {
         if ((view.getId() >>> 24) == 0 || view.getId() == View.NO_ID) return null;
         try { return view.getResources().getResourceEntryName(view.getId()); }
         catch (android.content.res.Resources.NotFoundException missing) { return null; }

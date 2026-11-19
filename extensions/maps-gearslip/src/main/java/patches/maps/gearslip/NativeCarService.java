@@ -60,12 +60,15 @@ public final class NativeCarService extends Service {
         Throwable failure;
         volatile NativeKeyboard keyboard;
         boolean controlsOpen;
+        String shown, exported;
         Session(int uid, Binding binding) { this.uid = uid; this.binding = binding; this.generation = binding.generation; }
     }
 
     @Override public IBinder onBind(Intent intent) {
         // Android Auto can bind this component explicitly without an action. The
         // authenticated Binder handshake, rather than Intent metadata, owns access.
+        DebugLog.init(this);
+        DebugLog.log("bind action=" + (intent == null ? null : intent.getAction()));
         return activateBinding(intent).binder;
     }
 
@@ -130,6 +133,7 @@ public final class NativeCarService extends Service {
                 if (!signing.hasMultipleSigners()) history = digests(signing.getSigningCertificateHistory());
             }
         }
+        DebugLog.log("handshake host=" + host + " api=" + api);
         if (!HostPolicy.permits(host, uid, getPackageManager().getPackagesForUid(uid), current, history)) {
             throw new SecurityException("Unrecognized car host or caller package mismatch");
         }
@@ -197,6 +201,7 @@ public final class NativeCarService extends Service {
         if (Looper.myLooper() != Looper.getMainLooper()) { main.post(() -> failed(session, error)); return; }
         if (active != session || session.closed || session.failure != null) return;
         session.failure = error;
+        DebugLog.log("car session failed", error);
         clearKeyboard(session);
         endNavigation(session);
         if(session.stopTimeout!=null)main.removeCallbacks(session.stopTimeout);
@@ -226,6 +231,7 @@ public final class NativeCarService extends Service {
         try {
             clearKeyboard(session);
             session.keyboard = new NativeKeyboard(input, editor);
+            DebugLog.log("keyboard ready, asking host for the search screen");
             invalidate(session);
         } catch (Exception error) { failed(session, error); }
     }
@@ -316,7 +322,7 @@ public final class NativeCarService extends Service {
                     session.guidance=new NativeGuidance(this,main,snapshot->navigation(session,snapshot),
                             error->android.util.Log.w("MapsNativeCar","Native guidance stopped",error));
                 }catch(Exception error){
-                    android.util.Log.w("MapsNativeCar","Native guidance unavailable; continuing without host trip updates",error);
+                    DebugLog.log("native guidance unavailable: " + error);
                     session.guidance=null;
                 }
             }
@@ -425,12 +431,15 @@ public final class NativeCarService extends Service {
                                 Bundle template = session.failure != null ? CarProtocol.template(session.failure)
                                         : input != null ? CarProtocol.searchTemplate(input.text(), input.hint(), new SearchBinder(session, input))
                                         : controlsTemplate(session);
+                                String shown = session.failure != null ? "error" : input != null ? "search" : session.controlsOpen ? "more controls" : "navigation";
+                                if (!shown.equals(session.shown)) { session.shown = shown; DebugLog.log("host is given the " + shown + " template"); }
                                 CarProtocol.screenStack(template,session.controlsOpen);
                                 CarProtocol.complete(callback, template, null);
                             } catch (Exception error) { failed(session, error); CarProtocol.complete(callback, null, error); }
                         }
                     });
                 } else if (code == 3) dispatch(session, callback, true, () -> {
+                    DebugLog.log("host back, keyboard=" + (session.keyboard != null) + " controlsOpen=" + session.controlsOpen);
                     if(session.keyboard!=null){clearKeyboard(session);session.renderer.back();}
                     else if (session.controlsOpen) session.controlsOpen = false;
                     else { clearKeyboard(session); session.renderer.back(); }
@@ -451,6 +460,13 @@ public final class NativeCarService extends Service {
         while (mapControls.size() > 3) overflow.add(mapControls.remove(3));
         if (mainControls.size() > 4 || (!overflow.isEmpty() && mainControls.size() > 3))
             while (mainControls.size() > 3) overflow.add(0, mainControls.remove(mainControls.size() - 1));
+        StringBuilder exported = new StringBuilder("buttons:");
+        for (NativeControls.Control control : mainControls) exported.append(' ').append(control.role);
+        exported.append(" | map:");
+        for (NativeControls.Control control : mapControls) exported.append(' ').append(control.role);
+        exported.append(" | more:");
+        for (NativeControls.Control control : overflow) exported.append(' ').append(control.role);
+        if (!exported.toString().equals(session.exported)) { session.exported = exported.toString(); DebugLog.log(session.exported); }
         if (session.controlsOpen) {
             List<Bundle> rows = new ArrayList<>();
             for (NativeControls.Control control : overflow) rows.add(CarProtocol.controlRow(control.title, new ActionBinder(session, control)));
@@ -479,6 +495,7 @@ public final class NativeCarService extends Service {
             try {
                 boolean panning = data.readInt() != 0; callback = data.readStrongBinder();
                 requireSession(session);
+                DebugLog.log("pan mode " + panning);
                 dispatch(session, callback, true, () -> { if (!panning) session.renderer.endGesture(); });
             } catch (Exception error) { CarProtocol.complete(callback, null, error); }
             return true;
@@ -500,9 +517,17 @@ public final class NativeCarService extends Service {
             try {
                 requireSession(session);
                 dispatch(session, callback, true, () -> {
-                    if (session.keyboard != null) throw new SecurityException("Navigation actions are inactive during search input");
+                    DebugLog.log("button " + (control == null ? "MORE" : control.role) + " keyboard=" + (session.keyboard != null));
+                    // The host can only press these while it shows the navigation screen. If Maps
+                    // still believes its keyboard is up, the search screen never appeared or was
+                    // left; drop that stale state instead of refusing every button from then on.
+                    if (session.keyboard != null) clearKeyboard(session);
                     if (control == null) session.controlsOpen = true;
-                    else { session.controlsOpen = false; session.renderer.performControl(control); }
+                    else {
+                        session.controlsOpen = false;
+                        try { session.renderer.performControl(control); }
+                        catch (SecurityException retired) { DebugLog.log("button " + control.role + " refused: " + retired.getMessage()); throw retired; }
+                    }
                     invalidate(session);
                 });
             } catch (Exception error) { CarProtocol.complete(callback, null, error); }
@@ -522,6 +547,7 @@ public final class NativeCarService extends Service {
                 requireSession(session);
                 if (session.keyboard != input) throw new SecurityException("Maps input connection replaced");
                 dispatch(session, callback, true, () -> {
+                    DebugLog.log("search " + (code == 2 ? "text changed" : "submitted") + " length=" + (query == null ? 0 : query.length()));
                     if (session.keyboard != input) throw new SecurityException("Maps input connection replaced");
                     if (code == 2) input.replace(query);
                     else {
