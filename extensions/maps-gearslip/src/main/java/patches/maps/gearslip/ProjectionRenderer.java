@@ -68,6 +68,9 @@ public final class ProjectionRenderer {
     private Rect visibleArea, stableArea, appliedInsets;
     private long downTime;
     private float touchX, touchY;
+    private boolean tapPending;
+    private int moves, dumps;
+    private long lastDump, lastScaleLog;
     private final Runnable endScroll = () -> guard(this::finishTouch);
     private final Runnable bindTimeout = () -> fail(new IllegalStateException("Maps' native car service did not connect"));
     private final ServiceConnection connection = new ServiceConnection() {
@@ -147,9 +150,9 @@ public final class ProjectionRenderer {
         });
     }
     public void start() {}
-    public void resume() { resumed = true; guard(() -> { if (created) lifecycle(5); telemetrySession(true); telemetrySurface(decor()); }); }
-    public void pause() { resumed = false; guard(() -> { telemetrySession(false); finishTouch(); if (created) lifecycle(3); }); }
-    public void stop() { resumed = false; guard(() -> { telemetrySession(false); finishTouch(); if (created) lifecycle(2); }); }
+    public void resume() { DebugLog.log("resume"); resumed = true; guard(() -> { if (created) lifecycle(5); telemetrySession(true); telemetrySurface(decor()); }); }
+    public void pause() { DebugLog.log("pause"); resumed = false; guard(() -> { telemetrySession(false); finishTouch(); if (created) lifecycle(3); }); }
+    public void stop() { DebugLog.log("stop"); resumed = false; guard(() -> { telemetrySession(false); finishTouch(); if (created) lifecycle(2); }); }
     public void close() {
         if (closed) return;
         closed = true;
@@ -194,6 +197,7 @@ public final class ProjectionRenderer {
             // A host can replace/hide its surface just to display its keyboard. The Maps
             // activity and native editor must survive that target change.
             boolean sameCanvas = nativeWidth == w && nativeHeight == h && nativeDpi == density;
+            DebugLog.log("surface " + w + "x" + h + "@" + density + " created=" + created + " sameCanvas=" + sameCanvas);
             if (surface != null && surface != value) detachSurface();
             surface = value; width = w; height = h; dpi = density;
             if (created && !sameCanvas) resizeCanvas(w, h, density);
@@ -201,8 +205,8 @@ public final class ProjectionRenderer {
         });
     }
     public void surfaceDestroyed() { guard(this::detachSurface); }
-    public void visibleArea(Rect area) { guard(() -> { visibleArea = area == null ? null : new Rect(area); visibleBounds.set(area == null ? new Rect() : area); applyAreas(); if (resumed) telemetrySurface(decor()); }); }
-    public void stableArea(Rect area) { guard(() -> { stableArea = area == null ? null : new Rect(area); stableBounds.set(area == null ? new Rect() : area); applyAreas(); if (resumed) telemetrySurface(decor()); }); }
+    public void visibleArea(Rect area) { DebugLog.log("visible area " + area); guard(() -> { visibleArea = area == null ? null : new Rect(area); visibleBounds.set(area == null ? new Rect() : area); applyAreas(); if (resumed) telemetrySurface(decor()); }); }
+    public void stableArea(Rect area) { DebugLog.log("stable area " + area); guard(() -> { stableArea = area == null ? null : new Rect(area); stableBounds.set(area == null ? new Rect() : area); applyAreas(); if (resumed) telemetrySurface(decor()); }); }
     private Rect insets(int w, int h) {
         Rect canvas = new Rect(0, 0, w, h), safe = visibleArea == null ? null : new Rect(visibleArea);
         if (safe == null || safe.isEmpty() || !safe.intersect(canvas)) safe = stableArea == null ? null : new Rect(stableArea);
@@ -219,6 +223,7 @@ public final class ProjectionRenderer {
         call(presentation, "A", new Class<?>[]{Rect.class}, insets);
         if (surface != null && surface.isValid()) controller.getClass().getField("C").set(controller, drawing(nativeWidth, nativeHeight, nativeDpi));
         appliedInsets = new Rect(insets);
+        DebugLog.log("insets applied " + insets.toShortString() + " canvas=" + nativeWidth + "x" + nativeHeight);
     }
     static Rect warningViewport(int width,int height,Rect visible,Rect stable){
         Rect result=new Rect(0,0,Math.max(0,width),Math.max(0,height));
@@ -269,6 +274,7 @@ public final class ProjectionRenderer {
         return value;
     }
     public void back() {
+        DebugLog.log("back");
         guard(() -> {
             finishTouch();
             View view = decor();
@@ -281,21 +287,42 @@ public final class ProjectionRenderer {
     public void click(float x, float y) {
         guard(() -> {
             finishTouch();
+            View root = decor();
+            String target = root == null ? "no window" : hit(root, x, y);
             downTime = SystemClock.uptimeMillis();
             touchX = x; touchY = y;
-            touch(MotionEvent.ACTION_DOWN, x, y);
-            touch(MotionEvent.ACTION_UP, x, y);
-            downTime = 0;
+            boolean handled = touch(MotionEvent.ACTION_DOWN, x, y);
+            // A zero-length tap is something no finger produces. Hold it for a moment, as the
+            // views were built for, and release through the same path a drag uses.
+            tapPending = true;
+            main.postDelayed(endScroll, 40);
+            DebugLog.log("click " + Math.round(x) + "," + Math.round(y) + " handled=" + handled + " " + target);
+            dumpViews("click", false);
+            main.postDelayed(() -> guard(() -> dumpViews("after click", true)), 800);
         });
     }
     public void endGesture() { guard(this::finishTouch); }
     public void scroll(float distanceX, float distanceY) {
         guard(() -> {
+            if (tapPending) finishTouch();
             if (downTime == 0) {
+                // The host reports how far a drag moved, never where it is. Start it in the part
+                // of the surface the host leaves uncovered, or, for an up/down drag while a Maps
+                // list is open (settings, results), on that list so it scrolls instead of the map.
+                Rect area = usable();
+                float startX = area.isEmpty() ? width / 2f : area.exactCenterX(), startY = area.isEmpty() ? height / 2f : area.exactCenterY();
+                View root = decor();
+                View list = root != null && Math.abs(distanceY) >= Math.abs(distanceX) ? scrollable(root) : null;
+                if (list != null) {
+                    int[] at = new int[2]; list.getLocationInWindow(at);
+                    startX = at[0] + list.getWidth() / 2f; startY = at[1] + list.getHeight() / 2f;
+                }
                 downTime = SystemClock.uptimeMillis();
-                touchX = width / 2f; touchY = height / 2f;
+                touchX = startX; touchY = startY; moves = 0;
                 touch(MotionEvent.ACTION_DOWN, touchX, touchY);
+                DebugLog.log("drag start " + Math.round(startX) + "," + Math.round(startY) + " on " + (list == null ? "map" : label(list)) + " usable=" + area.toShortString());
             }
+            moves++;
             touchX = Math.max(1, Math.min(width - 1, touchX - distanceX));
             touchY = Math.max(1, Math.min(height - 1, touchY - distanceY));
             touch(MotionEvent.ACTION_MOVE, touchX, touchY);
@@ -311,6 +338,8 @@ public final class ProjectionRenderer {
         guard(() -> {
             if (!Float.isFinite(factor) || factor <= 0) return;
             finishTouch();
+            long logged = SystemClock.uptimeMillis();
+            if (logged - lastScaleLog > 500) { lastScaleLog = logged; DebugLog.log("scale " + factor + " at " + Math.round(focusX) + "," + Math.round(focusY)); }
             downTime = SystemClock.uptimeMillis();
             float radius = Math.min(width, height) / 8f;
             twoPointers(MotionEvent.ACTION_DOWN, focusX, focusY, radius, 1);
@@ -348,8 +377,10 @@ public final class ProjectionRenderer {
         initialUiState = null;
         nativeWidth = width; nativeHeight = height; nativeDpi = dpi;
         created = true;
+        DebugLog.log("Maps car UI created " + width + "x" + height + "@" + dpi + " config=" + configuration);
         appliedInsets = null; applyAreas();
         attachControls();
+        main.postDelayed(() -> guard(() -> dumpViews("start", true)), 4000);
         if (resumed) { lifecycle(5); telemetrySession(true); telemetrySurface(decor()); }
     }
     Bundle restoredUiState() {
@@ -416,14 +447,86 @@ public final class ProjectionRenderer {
     }
     private void finishTouch() throws Exception {
         main.removeCallbacks(endScroll);
-        if (downTime != 0) { touch(MotionEvent.ACTION_UP, touchX, touchY); downTime = 0; }
+        if (downTime != 0) {
+            touch(MotionEvent.ACTION_UP, touchX, touchY); downTime = 0;
+            if (!tapPending) DebugLog.log("drag end moves=" + moves);
+        }
+        tapPending = false;
     }
-    private void touch(int action, float x, float y) throws Exception {
+    private boolean touch(int action, float x, float y) throws Exception {
         View view = decor();
-        if (view == null) return;
+        if (view == null) return false;
         MotionEvent event = MotionEvent.obtain(downTime, SystemClock.uptimeMillis(), action, x, y, 0);
         event.setSource(0x1002);
-        try { view.dispatchTouchEvent(event); } finally { event.recycle(); }
+        try { return view.dispatchTouchEvent(event); } finally { event.recycle(); }
+    }
+    /** The part of the canvas the host says its own chrome does not cover. */
+    private Rect usable() {
+        Rect canvas = new Rect(0, 0, width, height);
+        for (Rect area : new Rect[]{visibleArea, stableArea}) {
+            if (area == null || area.isEmpty()) continue;
+            Rect safe = new Rect(area);
+            if (safe.intersect(canvas)) return safe;
+        }
+        return new Rect();
+    }
+    /** Frontmost Maps list on screen that can scroll up or down. The map itself never reports that. */
+    private View scrollable(View view) {
+        if (view.getVisibility() != View.VISIBLE || view.getWidth() <= 0 || view.getHeight() <= 0) return null;
+        if (view instanceof ViewGroup) for (int i = ((ViewGroup) view).getChildCount() - 1; i >= 0; i--) {
+            View found = scrollable(((ViewGroup) view).getChildAt(i));
+            if (found != null) return found;
+        }
+        return (view.canScrollVertically(1) || view.canScrollVertically(-1)) && view.getHeight() >= 96 * nativeDpi / 160 ? view : null;
+    }
+    private static String label(View view) {
+        int[] at = new int[2]; view.getLocationInWindow(at);
+        String name = NativeControls.name(view);
+        return (name == null ? "?" : name) + ":" + view.getClass().getSimpleName() + "[" + at[0] + "," + at[1] + " " + view.getWidth() + "x" + view.getHeight() + "]";
+    }
+    /** What a tap at this point lands on: the deepest view, and the nearest one that takes clicks. */
+    private static String hit(View root, float x, float y) {
+        StringBuilder path = new StringBuilder();
+        View node = root, clickable = null;
+        int[] at = new int[2];
+        while (true) {
+            if (node.isClickable() || node.hasOnClickListeners()) clickable = node;
+            View next = null;
+            if (node instanceof ViewGroup) for (int i = ((ViewGroup) node).getChildCount() - 1; i >= 0; i--) {
+                View child = ((ViewGroup) node).getChildAt(i);
+                if (child.getVisibility() != View.VISIBLE) continue;
+                child.getLocationInWindow(at);
+                if (x >= at[0] && x < at[0] + child.getWidth() && y >= at[1] && y < at[1] + child.getHeight()) { next = child; break; }
+            }
+            if (next == null) break;
+            node = next;
+            String name = NativeControls.name(node);
+            if (name != null) path.append('/').append(name);
+        }
+        return "leaf=" + label(node) + " takes clicks=" + (clickable == null ? "nothing" : label(clickable)) + " path=" + path;
+    }
+    private void dumpViews(String reason, boolean force) throws Exception {
+        long now = SystemClock.uptimeMillis();
+        if (dumps >= 40 || (!force && lastDump != 0 && now - lastDump < 4000)) return;
+        View root = decor();
+        if (root == null) return;
+        lastDump = now; dumps++;
+        StringBuilder text = new StringBuilder("views (" + reason + ") canvas=" + nativeWidth + "x" + nativeHeight + "@" + nativeDpi
+                + " surface=" + width + "x" + height + "@" + dpi + " visible=" + visibleBounds.toShortString() + " stable=" + stableBounds.toShortString());
+        dump(root, text, new int[1], new int[2]);
+        DebugLog.log(text.toString());
+    }
+    private static void dump(View view, StringBuilder text, int[] count, int[] at) {
+        if (count[0] >= 500 || view.getVisibility() == View.GONE) return;
+        String name = NativeControls.name(view);
+        boolean click = view.isClickable() || view.hasOnClickListeners(), scroll = view.canScrollVertically(1) || view.canScrollVertically(-1);
+        if (name != null || click || scroll) {
+            view.getLocationInWindow(at); count[0]++;
+            text.append("\n  ").append(name == null ? "?" : name).append(' ').append(view.getClass().getSimpleName())
+                    .append(" [").append(at[0]).append(',').append(at[1]).append(' ').append(view.getWidth()).append('x').append(view.getHeight()).append(']')
+                    .append(view.isShown() ? " shown" : " hidden").append(click ? " click" : "").append(scroll ? " scroll" : "").append(view.isEnabled() ? "" : " disabled");
+        }
+        if (view instanceof ViewGroup) for (int i = 0; i < ((ViewGroup) view).getChildCount(); i++) dump(((ViewGroup) view).getChildAt(i), text, count, at);
     }
     private void twoPointers(int action, float x, float y, float radius, int count) throws Exception {
         View view = decor();
@@ -457,7 +560,7 @@ public final class ProjectionRenderer {
     private void fail(Throwable error) {
         if (closed || failed) return;
         failed = true;
-        Log.e("MapsNativeCar", "Original Maps car renderer failed", error);
+        DebugLog.log("renderer failed", error);
         onFailure.accept(error);
     }
     private Parcelable ui() throws Exception {
@@ -503,11 +606,13 @@ public final class ProjectionRenderer {
                         EditorInfo editor = data.readInt() == 0 ? null : EditorInfo.CREATOR.createFromParcel(data);
                         if (input == null || editor == null) throw new IllegalArgumentException("Maps supplied no native editor");
                         keyboardRequested = true;
+                        DebugLog.log("Maps asks for the keyboard");
                         main.post(() -> {
                             if (!closed && !failed && keyboardListener != null) keyboardListener.show(input, editor);
                         });
                     } else if (code == 17) {
                         keyboardRequested = false;
+                        DebugLog.log("Maps hides the keyboard");
                         main.post(() -> {
                             if (!closed && keyboardListener != null) keyboardListener.hide();
                         });
@@ -515,7 +620,7 @@ public final class ProjectionRenderer {
                     if (reply != null) { reply.writeNoException(); if (code == 24) reply.writeInt(0); }
                     return true;
                 }
-                Log.w("MapsNativeCar", "Unsupported native host request " + descriptor + " transaction " + code);
+                DebugLog.log("unsupported native host request " + descriptor + " transaction " + code);
                 return false;
             } catch (Exception error) {
                 if (reply != null) reply.writeException(new IllegalStateException("Native Maps host request failed", error));
