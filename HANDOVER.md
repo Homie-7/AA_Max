@@ -86,7 +86,7 @@ NativeControls moves Maps' own buttons (search, settings, sound, report, zoom, r
 the host's strips by view id and hides the originals; ids it does not know stay as Maps views
 and depend on faked taps.
 
-## aa.2 (untested on device)
+## aa.2 / aa.3 (untested on device; use aa.3)
 Taps held 40 ms; drags start in the visible area and on an open Maps list for up/down drags;
 pinch falls back to the visible centre; host buttons clear a stale keyboard state. DebugLog
 writes Download/AA_Max/aa-max-log-*.txt (also logcat tag MapsNativeCar): geometry, gestures,
