@@ -20,15 +20,17 @@ bearinmindcat's Maps features and adds working Android Auto. Owner drives a 2025
   repo to Morphe as a remote source would have installed the bundle WITHOUT Android Auto.
 - Version: 2.10.0-aa.1. Bundle name: "bearinmind patches + Android Auto".
 
-## NOT verified (nothing here has been compiled or run)
-The first session had no access to Maven, Gradle or Android SDK servers and no device.
-1. `./gradlew :patches:buildAndroid` has never run on this tree. Needs JDK 21, Android SDK,
-   and `GITHUB_ACTOR`/`GITHUB_TOKEN` (read:packages) for maven.pkg.github.com/MorpheApp/registry.
-2. The Morphe settings plugin is assumed to auto-include `extensions/maps-gearslip`
-   (settings.gradle.kts has no explicit includes; the AA project used the same layout).
-3. bearinmindcat uses plugin 2.0.0 / patcher 2.0.0; the AA project built with 2.1.0 / 2.2.0.
-   The car patches only use APIs bearinmindcat's own patches also use, but confirm at compile.
-4. Patch application against the real APKM, and anything on a phone or head unit.
+## Build status (2026-11-19)
+`./gradlew :patches:buildAndroid` passes in GitHub Actions (run 44437418699, artifact
+`patches-mpp`, about 10.6 MB). Confirmed by that build:
+- The Morphe settings plugin auto-includes `extensions/maps-gearslip`; it compiles and dexes.
+- The car patches compile against plugin 2.0.0 / patcher 2.0.0 with no source changes.
+- The only failure was the Gradle daemon running out of its default 512 MiB heap in
+  `:patches:buildAndroid`; `org.gradle.jvmargs` in gradle.properties now sets 4g.
+Download the .mpp from the run page in a browser (Actions > run > Artifacts).
+
+## NOT verified
+Patch application against the real APKM, and anything on a phone or head unit.
 
 ## Audit findings so far
 - No class overlap: no bearinmindcat Maps patch names the classes the car patches edit
@@ -61,7 +63,7 @@ The first session had no access to Maven, Gradle or Android SDK servers and no d
   120 Hz. If the car screen misbehaves, disable these first.
 
 ## Next steps
-1. Build locally or run the Actions workflow; fix compile errors.
+1. DONE: Actions build is green; get the .mpp from the latest run's `patches-mpp` artifact.
 2. Patch the 26.44.06 APKM in Morphe with this bundle (disable other Maps sources). Every car
    patch throws a PatchException with a specific message if Maps' code does not match.
 3. Phone check first: map tiles, search, routing, location, each bearinmindcat feature in use.
