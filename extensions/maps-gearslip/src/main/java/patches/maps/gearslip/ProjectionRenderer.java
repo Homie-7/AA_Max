@@ -172,6 +172,7 @@ public final class ProjectionRenderer {
         visibleArea = stableArea = appliedInsets = null;
     }
     public void newIntent(Intent value) {
+        DebugLog.log("new intent action=" + (value == null ? null : value.getAction()) + " scheme=" + (value == null || value.getData() == null ? null : value.getData().getScheme()));
         guard(() -> {
             intent = nativeIntent(value);
             if (created) call(field(controller, "J"), "C", new Class<?>[]{Intent.class}, intent);
@@ -334,10 +335,16 @@ public final class ProjectionRenderer {
         scroll(-velocityX / 15f, -velocityY / 15f);
         guard(this::finishTouch);
     }
-    public void scale(float focusX, float focusY, float factor) {
+    public void scale(float hostFocusX, float hostFocusY, float factor) {
         guard(() -> {
             if (!Float.isFinite(factor) || factor <= 0) return;
             finishTouch();
+            // The host reports a negative focus when it has none (zoom from a button or a knob).
+            // Pinching around an off-screen point does nothing, so use the uncovered centre.
+            Rect area = usable();
+            boolean known = hostFocusX >= 0 && hostFocusY >= 0 && hostFocusX <= width && hostFocusY <= height;
+            float focusX = known ? hostFocusX : area.isEmpty() ? width / 2f : area.exactCenterX();
+            float focusY = known ? hostFocusY : area.isEmpty() ? height / 2f : area.exactCenterY();
             long logged = SystemClock.uptimeMillis();
             if (logged - lastScaleLog > 500) { lastScaleLog = logged; DebugLog.log("scale " + factor + " at " + Math.round(focusX) + "," + Math.round(focusY)); }
             downTime = SystemClock.uptimeMillis();
@@ -448,8 +455,8 @@ public final class ProjectionRenderer {
     private void finishTouch() throws Exception {
         main.removeCallbacks(endScroll);
         if (downTime != 0) {
-            touch(MotionEvent.ACTION_UP, touchX, touchY); downTime = 0;
-            if (!tapPending) DebugLog.log("drag end moves=" + moves);
+            boolean handled = touch(MotionEvent.ACTION_UP, touchX, touchY); downTime = 0;
+            DebugLog.log((tapPending ? "tap released handled=" : "drag end moves=" + moves + " handled=") + handled);
         }
         tapPending = false;
     }
@@ -477,12 +484,16 @@ public final class ProjectionRenderer {
             View found = scrollable(((ViewGroup) view).getChildAt(i));
             if (found != null) return found;
         }
-        return (view.canScrollVertically(1) || view.canScrollVertically(-1)) && view.getHeight() >= 96 * nativeDpi / 160 ? view : null;
+        if (!(view.canScrollVertically(1) || view.canScrollVertically(-1)) || view.getHeight() < 96 * nativeDpi / 160 || view.getAlpha() < 0.5f) return null;
+        // Only a list that is really on screen: laid out inside the canvas and not clipped away.
+        Rect seen = new Rect();
+        return view.getGlobalVisibleRect(seen) && seen.height() >= 96 * nativeDpi / 160 && seen.intersect(0, 0, nativeWidth, nativeHeight) ? view : null;
     }
     private static String label(View view) {
         int[] at = new int[2]; view.getLocationInWindow(at);
         String name = NativeControls.name(view);
-        return (name == null ? "?" : name) + ":" + view.getClass().getSimpleName() + "[" + at[0] + "," + at[1] + " " + view.getWidth() + "x" + view.getHeight() + "]";
+        return (name == null ? "?" : name) + ":" + view.getClass().getSimpleName() + "[" + at[0] + "," + at[1] + " " + view.getWidth() + "x" + view.getHeight() + "]"
+                + (view.isEnabled() ? "" : " disabled") + (view.isFocusableInTouchMode() ? " focusInTouch" : "") + (view.isFocused() ? " focused" : "");
     }
     /** What a tap at this point lands on: the deepest view, and the nearest one that takes clicks. */
     private static String hit(View root, float x, float y) {
